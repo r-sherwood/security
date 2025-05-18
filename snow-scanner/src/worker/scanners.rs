@@ -12,14 +12,72 @@ use std::str::FromStr;
 use serde::{Deserialize, Deserializer};
 use std::io::Write;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScannerData<'a> {
+    pub static_file_name: Option<&'a str>,
+    pub funny_name: &'a str,
+    pub display_name: &'a str,
+    pub value: &'a str,
+    pub dns_prefix: Option<&'a str>,
+}
+
+pub const STRETCHOID: ScannerData = ScannerData {
+    static_file_name: None,
+    funny_name: "stretchoid agent",
+    display_name: "stretchoid",
+    value: "stretchoid",
+    dns_prefix: Some("stretchoid.com."),
+};
+pub const BINARYEDGE: ScannerData = ScannerData {
+    static_file_name: None,
+    funny_name: "binaryedge ninja",
+    display_name: "binaryedge",
+    value: "binaryedge",
+    dns_prefix: Some("binaryedge.ninja."),
+};
+
+pub const SHADOWSERVER: ScannerData = ScannerData {
+    static_file_name: None,
+    funny_name: "cloudy shadowserver",
+    display_name: "shadowserver",
+    value: "shadowserver",
+    dns_prefix: Some("shadowserver.org."),
+};
+
+pub fn get_scanners() -> Vec<ScannerData<'static>> {
+    vec![
+        STRETCHOID,
+        BINARYEDGE,
+        SHADOWSERVER,
+        ScannerData {
+            static_file_name: Some("censys.txt"),
+            funny_name: "Censys node",
+            display_name: "censys",
+            value: "censys",
+            dns_prefix: None,
+        },
+        ScannerData {
+            static_file_name: Some("internet-measurement.com.txt"),
+            funny_name: "internet measurement probe",
+            display_name: "internet-measurement.com",
+            value: "internet-measurement.com",
+            dns_prefix: None,
+        },
+        ScannerData {
+            static_file_name: Some("anssi.txt"),
+            funny_name: "French ANSSI probe",
+            display_name: "anssi",
+            value: "anssi",
+            dns_prefix: None,
+        },
+    ]
+}
+
+pub type ScannerNode = ScannersWrapper<ScannerData<'static>>;
+
 #[derive(Debug, Clone, Copy, FromSqlRow, PartialEq)]
-pub enum Scanners {
-    Stretchoid,
-    Binaryedge,
-    Shadowserver,
-    Censys,
-    InternetMeasurement,
-    Anssi,
+pub struct ScannersWrapper<ScannerData> {
+    pub info: ScannerData,
 }
 
 pub trait ScannerMethods {
@@ -28,33 +86,21 @@ pub trait ScannerMethods {
     fn funny_name(self: &Self) -> &str;
 }
 
-impl ScannerMethods for Scanners {
+impl ScannerMethods for ScannerNode {
     fn is_static(self: &Self) -> bool {
         self.static_file_name().is_some()
     }
 
     fn static_file_name(self: &Self) -> Option<&str> {
-        match self {
-            Self::Censys => Some("censys.txt"),
-            Self::InternetMeasurement => Some("internet-measurement.com.txt"),
-            Self::Anssi => Some("anssi.txt"),
-            _ => None,
-        }
+        self.info.static_file_name
     }
 
     fn funny_name(self: &Self) -> &str {
-        match self {
-            Self::Stretchoid => "stretchoid agent",
-            Self::Binaryedge => "binaryedge ninja",
-            Self::Censys => "Censys node",
-            Self::InternetMeasurement => "internet measurement probe",
-            Self::Shadowserver => "cloudy shadowserver",
-            _ => (*self).into(),
-        }
+        self.info.funny_name
     }
 }
 
-impl FromParam<'_> for Scanners {
+impl FromParam<'_> for ScannerNode {
     type Error = String;
 
     fn from_param(param: &'_ str) -> Result<Self, Self::Error> {
@@ -62,7 +108,7 @@ impl FromParam<'_> for Scanners {
     }
 }
 
-impl<'de> Deserialize<'de> for Scanners {
+impl<'de> Deserialize<'de> for ScannerNode {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -76,27 +122,20 @@ impl<'de> Deserialize<'de> for Scanners {
     }
 }
 
-impl ToString for Scanners {
+impl ToString for ScannerNode {
     fn to_string(&self) -> String {
         let res: &str = (*self).into();
         res.to_string()
     }
 }
 
-impl Into<&str> for Scanners {
+impl Into<&str> for ScannerNode {
     fn into(self) -> &'static str {
-        match self {
-            Self::Stretchoid => "stretchoid",
-            Self::Binaryedge => "binaryedge",
-            Self::Censys => "censys",
-            Self::InternetMeasurement => "internet-measurement.com",
-            Self::Shadowserver => "shadowserver",
-            Self::Anssi => "anssi",
-        }
+        self.info.display_name
     }
 }
 
-impl serialize::ToSql<Text, Mysql> for Scanners {
+impl serialize::ToSql<Text, Mysql> for ScannerNode {
     fn to_sql(&self, out: &mut serialize::Output<Mysql>) -> serialize::Result {
         let res: &str = (*self).into();
         out.write_all(res.as_bytes())?;
@@ -105,11 +144,11 @@ impl serialize::ToSql<Text, Mysql> for Scanners {
     }
 }
 
-impl deserialize::FromSql<Text, Mysql> for Scanners {
+impl deserialize::FromSql<Text, Mysql> for ScannerNode {
     fn from_sql(bytes: MysqlValue) -> deserialize::Result<Self> {
         let value = <String as deserialize::FromSql<Text, Mysql>>::from_sql(bytes)?;
         let value = &value as &str;
-        let value: Result<Scanners, String> = value.try_into();
+        let value: Result<ScannerNode, String> = value.try_into();
         match value {
             Ok(d) => Ok(d),
             Err(err) => Err(err.into()),
@@ -118,50 +157,38 @@ impl deserialize::FromSql<Text, Mysql> for Scanners {
 }
 
 // Used for FromSql & FromParam & Deserialize
-impl TryInto<Scanners> for &str {
+impl TryInto<ScannerNode> for &str {
     type Error = String;
 
-    fn try_into(self) -> Result<Scanners, Self::Error> {
-        match self.replace(".txt", "").as_str() {
-            "stretchoid" => Ok(Scanners::Stretchoid),
-            "binaryedge" => Ok(Scanners::Binaryedge),
-            "internet-measurement.com" => Ok(Scanners::InternetMeasurement),
-            "shadowserver" => Ok(Scanners::Shadowserver),
-            "censys" => Ok(Scanners::Censys),
-            "anssi" => Ok(Scanners::Anssi),
-            value => Err(format!("Invalid value: {value}")),
+    fn try_into(self) -> Result<ScannerNode, Self::Error> {
+        let value: String = self.replace(".txt", "").as_str().to_string();
+        match get_scanners()
+            .iter()
+            .find(|scanner| scanner.value.eq(&value))
+        {
+            Some(scanner) => Ok(ScannersWrapper { info: *scanner }),
+            None => Err(format!("Invalid value: {value}")),
         }
     }
 }
 
 // Used by the DNS logic
-impl TryInto<Scanners> for Name {
+impl TryInto<ScannerNode> for Name {
     type Error = String;
 
-    fn try_into(self) -> Result<Scanners, Self::Error> {
-        match self {
-            ref name
-                if name
-                    .trim_to(2)
-                    .eq_case(&Name::from_str("binaryedge.ninja.").expect("Should parse")) =>
-            {
-                Ok(Scanners::Binaryedge)
-            }
-            ref name
-                if name
-                    .trim_to(2)
-                    .eq_case(&Name::from_str("stretchoid.com.").expect("Should parse")) =>
-            {
-                Ok(Scanners::Stretchoid)
-            }
-            ref name
-                if name
-                    .trim_to(2)
-                    .eq_case(&Name::from_str("shadowserver.org.").expect("Should parse")) =>
-            {
-                Ok(Scanners::Shadowserver)
-            }
-            ref name => Err(format!("Invalid hostname: {name}")),
+    fn try_into(self) -> Result<ScannerNode, Self::Error> {
+        let short_name = self.trim_to(2);
+        match get_scanners()
+            .iter()
+            .filter(|scanner| scanner.dns_prefix.is_some())
+            .find(|scanner| {
+                short_name.eq_case(
+                    &Name::from_str(scanner.dns_prefix.expect("Should have a DNS prefix"))
+                        .expect("Should parse"),
+                )
+            }) {
+            Some(scanner) => Ok(ScannersWrapper { info: *scanner }),
+            None => Err(format!("Invalid hostname: {self}")),
         }
     }
 }
@@ -175,8 +202,8 @@ mod test {
     fn test_detect_scanner_from_name() {
         let ptr = Name::from_str("scan-47e.shadowserver.org.").unwrap();
 
-        let res: Result<Scanners, String> = ptr.try_into();
+        let res: Result<ScannerNode, String> = ptr.try_into();
 
-        assert_eq!(res.unwrap(), Scanners::Shadowserver);
+        assert_eq!(res.unwrap().info, SHADOWSERVER);
     }
 }

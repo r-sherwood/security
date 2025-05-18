@@ -33,11 +33,16 @@ use rocket_ws::WebSocket;
 use server::Server;
 use weighted_rs::Weight;
 
-use snow_scanner_worker::detection::{get_dns_client, get_dns_server_config, validate_ip};
-use snow_scanner_worker::modules::{Network, WorkerMessages};
 use snow_scanner_worker::scanners::ScannerMethods;
-use snow_scanner_worker::scanners::Scanners;
 use snow_scanner_worker::utils::get_dns_rr;
+use snow_scanner_worker::{
+    detection::{get_dns_client, get_dns_server_config, validate_ip},
+    scanners::STRETCHOID,
+};
+use snow_scanner_worker::{
+    modules::{Network, WorkerMessages},
+    scanners::{ScannerData, ScannerNode},
+};
 
 use std::net::SocketAddr;
 use std::{
@@ -123,7 +128,7 @@ impl FromFormField<'_> for SafeIpAddr {
 
 async fn handle_ip(
     query_address: IpAddr,
-) -> Result<(IpAddr, Option<Scanners>, ResolvedResult), String> {
+) -> Result<(IpAddr, Option<ScannerNode>, ResolvedResult), String> {
     let ptr_result: Result<ResolvedResult, String> = std::thread::spawn(move || {
         let mut rr_dns_servers = get_dns_rr();
         let client = get_dns_client(&get_dns_server_config(&rr_dns_servers.next().unwrap()));
@@ -139,7 +144,7 @@ async fn handle_ip(
 
     match ptr_result {
         Ok(result) => {
-            let scanner: Result<Scanners, String> = result.query.clone().try_into();
+            let scanner: Result<ScannerNode, String> = result.query.clone().try_into();
 
             match scanner {
                 Ok(scanner_type) => {
@@ -263,17 +268,17 @@ pub struct ReportParams {
     ip: SafeIpAddr,
 }
 
-fn reply_contents_for_scanner_found(scanner: Scanner) -> HtmlContents {
+fn reply_contents_for_scanner_found(scanner: Scanner, scanner_type: ScannerData) -> HtmlContents {
     HtmlContents(match scanner.last_checked_at {
         Some(date) => format!(
             "Reported a {}! <b>{}</b> known as {} since {date}.",
-            scanner.scanner_name.funny_name(),
+            scanner_type.funny_name,
             scanner.ip,
             scanner.ip_ptr.unwrap_or("".to_string())
         ),
         None => format!(
             "Reported a {}! <b>{}</b> known as {}.",
-            scanner.scanner_name.funny_name(),
+            scanner_type.funny_name,
             scanner.ip,
             scanner.ip_ptr.unwrap_or("".to_string())
         ),
@@ -286,13 +291,16 @@ async fn handle_report(mut db: DbConn, form: Form<ReportParams>) -> MultiReply {
         Ok((query_address, scanner_type, result)) => match scanner_type {
             Some(scanner_type) => match Scanner::find_or_new(
                 query_address,
-                scanner_type,
+                scanner_type.info,
                 result.result.clone(),
                 &mut db,
             )
             .await
             {
-                Ok(scanner) => MultiReply::Content(reply_contents_for_scanner_found(scanner)),
+                Ok(scanner) => MultiReply::Content(reply_contents_for_scanner_found(
+                    scanner,
+                    scanner_type.info,
+                )),
                 Err(err) => MultiReply::Error(ServerError(format!(
                     "The IP {} resolved as {} could not be saved, server error: {err}.",
                     form.ip.addr,
@@ -365,7 +373,7 @@ async fn handle_get_collection(
 #[get("/scanners/<scanner_name>")]
 async fn handle_list_scanners(
     mut db: DbConn,
-    scanner_name: Scanners,
+    scanner_name: ScannerNode,
     app_configs: &State<AppConfigs>,
 ) -> MultiReply {
     let static_data_dir: String = app_configs.static_data_dir.clone();
@@ -385,7 +393,7 @@ async fn handle_list_scanners(
         };
     }
 
-    let scanners_list = match Scanner::list_names(scanner_name, &mut db).await {
+    let scanners_list = match Scanner::list_names(scanner_name.info, &mut db).await {
         Ok(data) => Ok(data),
         Err(err) => Err(err),
     };
@@ -511,7 +519,7 @@ async fn report_counts<'a>(rocket: Rocket<rocket::Build>) -> Rocket<rocket::Buil
             span_error!("failed to connect to MySQL database" => error!("{e}"));
             panic!("aborting launch");
         });
-    match Scanner::list_names(Scanners::Stretchoid, &mut DbConnection(conn)).await {
+    match Scanner::list_names(STRETCHOID, &mut DbConnection(conn)).await {
         Ok(d) => info!("Found {} Stretchoid scanners", d.len()),
         Err(err) => error!("Unable to fetch Stretchoid scanners: {err}"),
     }

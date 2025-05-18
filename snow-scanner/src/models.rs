@@ -1,9 +1,10 @@
 use std::net::IpAddr;
 
-use crate::{DbConn, Scanners};
+use crate::DbConn;
 use chrono::{NaiveDateTime, Utc};
 use hickory_resolver::Name;
 use rocket_db_pools::diesel::{dsl::insert_into, prelude::*, result::Error as DieselError};
+use snow_scanner_worker::scanners::ScannerData;
 
 use crate::schema::scan_tasks::dsl::scan_tasks;
 use crate::schema::scanners::dsl::scanners;
@@ -14,7 +15,7 @@ use crate::schema::scanners::dsl::scanners;
 pub struct Scanner {
     pub ip: String,
     pub ip_type: u8,
-    pub scanner_name: Scanners,
+    pub scanner_name: String,
     pub ip_ptr: Option<String>,
     pub created_at: NaiveDateTime,
     pub updated_at: Option<NaiveDateTime>,
@@ -25,7 +26,7 @@ pub struct Scanner {
 impl Scanner {
     pub async fn find_or_new(
         query_address: IpAddr,
-        scanner_name: Scanners,
+        scanner_data: ScannerData<'static>,
         ptr: Option<Name>,
         conn: &mut DbConn,
     ) -> Result<Scanner, DieselError> {
@@ -45,7 +46,7 @@ impl Scanner {
             Scanner {
                 ip: query_address.to_string(),
                 ip_type: ip_type,
-                scanner_name: scanner_name.clone(),
+                scanner_name: scanner_data.value.to_string(),
                 ip_ptr: match ptr {
                     Some(ptr) => Some(ptr.to_string()),
                     None => None,
@@ -79,15 +80,16 @@ impl Scanner {
     }
 
     pub async fn list_names(
-        scanner_name: Scanners,
+        scanner_data: ScannerData<'static>,
         conn: &mut DbConn,
     ) -> Result<Vec<String>, DieselError> {
         use crate::schema::scanners;
         use crate::schema::scanners::ip;
+        use crate::schema::scanners::scanner_name;
 
         scanners
             .select(ip)
-            .filter(scanners::scanner_name.eq(scanner_name.to_string()))
+            .filter(scanner_name.eq(scanner_data.value))
             .order((scanners::ip_type.desc(), scanners::created_at.desc()))
             .load::<String>(conn)
             .await

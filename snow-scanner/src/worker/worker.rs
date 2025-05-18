@@ -4,7 +4,7 @@ use chrono::{Duration, NaiveDateTime, Utc};
 use cidr::IpCidr;
 use dns_ptr_resolver::{get_ptr, ResolvedResult};
 use log2::*;
-use scanners::Scanners;
+use scanners::ScannerNode;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Error, Message, WebSocket};
 use weighted_rs::Weight;
@@ -160,7 +160,7 @@ impl Worker {
             let client = get_dns_client(&get_dns_server_config(&rr_dns_servers.next().unwrap()));
             match get_ptr(addr, client) {
                 Ok(result) => {
-                    let scanner: Result<Scanners, String> = result.query.clone().try_into();
+                    let scanner: Result<ScannerNode, String> = result.query.clone().try_into();
 
                     match scanner {
                         Ok(scanner_name) => {
@@ -181,7 +181,12 @@ impl Worker {
         }
     }
 
-    fn report_detection(&mut self, scanner_name: Scanners, addr: IpAddr, result: ResolvedResult) {
+    fn report_detection(
+        &mut self,
+        scanner_name: ScannerNode,
+        addr: IpAddr,
+        result: ResolvedResult,
+    ) {
         info!("Detected {:?} for {addr}", scanner_name);
         let request = WorkerMessages::ScannerFoundResponse {
             name: result.result.unwrap().to_string(),

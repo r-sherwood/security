@@ -7,7 +7,7 @@ use rocket::futures::channel::mpsc as rocket_mpsc;
 use rocket::futures::StreamExt;
 use rocket::tokio;
 use snow_scanner_worker::detection::validate_ip;
-use snow_scanner_worker::scanners::Scanners;
+use snow_scanner_worker::scanners::ScannerNode;
 
 use crate::Scanner;
 
@@ -58,11 +58,11 @@ impl EventBus {
                     return;
                 }
                 let name = Name::from_str(name.as_str()).unwrap();
-                let scanner: Result<Scanners, String> = name.clone().try_into();
+                let scanner: Result<ScannerNode, String> = name.clone().try_into();
 
                 match scanner {
                     Ok(scanner_type) => {
-                        match Scanner::find_or_new(ip, scanner_type.to_owned(), Some(name), db)
+                        match Scanner::find_or_new(ip, scanner_type.info.to_owned(), Some(name), db)
                             .await
                         {
                             Ok(scanner) => {
