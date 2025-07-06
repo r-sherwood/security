@@ -1,0 +1,21 @@
+#!/bin/sh
+# postinst script for snow-scanner
+
+set -eu
+
+if [ "$1" = "configure" ]; then
+
+	if ! getent passwd | grep -q "^snow-scanner:"; then
+		useradd --shell /bin/sh snow-scanner
+	fi
+
+	if [ ! -d /etc/snow-scanner ]; then
+		mkdir /etc/snow-scanner
+		chown snow-scanner:snow-scanner /etc/snow-scanner
+		chmod 770 /etc/snow-scanner
+	fi
+fi
+
+#DEBHELPER#
+
+exit 0
