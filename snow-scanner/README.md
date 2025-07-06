@@ -26,3 +26,18 @@ ROCKET_PROFILE="debug"
 # Setup TLS
 ROCKET_TLS='{certs="/etc/ssl/certs/cert.pem",key="/etc/ssl/private/key.pem", mutual={ca_certs="/etc/ssl/certs/cloudflare.crt",mandatory=true}}'
 ```
+
+## Make a new release
+
+Pre-requirements: `cargo install cargo-deb`
+
+- Bump `Cargo.toml`
+- Commit it
+- Run `cd snow-scanner`
+- Run `cargo update`
+- Commit the changes to the lockfile
+- Run tests `cargo test`
+- Run `cargo deb`
+- Run `./debian/upload.sh target/debian/snow-scanner_1.1.0-1_amd64.deb`
+- Run `git tag -a -s -m "snow-scanner/1.1.0" snow-scanner/1.1.0`
+- Check `debdiff ../../snow-scanner_1.0.0-1_amd64.deb target/debian/snow-scanner_1.1.0-1_amd64.deb`
